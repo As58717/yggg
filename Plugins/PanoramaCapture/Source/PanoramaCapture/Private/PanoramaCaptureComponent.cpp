@@ -188,7 +188,11 @@ namespace
 
     constexpr const TCHAR* kRecoveryFileExtension = TEXT(".panrec.json");
 
-    FString BuildMetadataArgs(const FPanoCaptureOutputSettings& OutputSettings, EPanoramaCaptureMode CaptureMode, const FPanoAudioCaptureSettings& AudioSettings)
+    FString BuildMetadataArgs(
+        const FPanoCaptureOutputSettings& OutputSettings,
+        EPanoramaCaptureMode CaptureMode,
+        const FPanoAudioCaptureSettings& AudioSettings,
+        bool bIncludeAudio)
     {
         FString Metadata;
         if (OutputSettings.bInjectSphericalMetadata)
@@ -202,13 +206,16 @@ namespace
             Metadata += FString::Printf(TEXT(" -metadata:s:v:0 stereo_mode=%s"), StereoString);
         }
 
-        Metadata += FString::Printf(TEXT(" -metadata:s:a:0 channel_layout=%s"), *AudioSettings.GetChannelLayoutName());
-        if (AudioSettings.bEnableSpatialMetadata && OutputSettings.bInjectSpatialAudioMetadata)
+        if (bIncludeAudio)
         {
-            Metadata += TEXT(" -metadata:s:a:0 spatial_audio=1");
-            if (AudioSettings.ChannelLayout == EPanoramaAudioChannelLayout::FirstOrderAmbisonics)
+            Metadata += FString::Printf(TEXT(" -metadata:s:a:0 channel_layout=%s"), *AudioSettings.GetChannelLayoutName());
+            if (AudioSettings.bEnableSpatialMetadata && OutputSettings.bInjectSpatialAudioMetadata)
             {
-                Metadata += TEXT(" -metadata:s:a:0 ambisonic_order=1");
+                Metadata += TEXT(" -metadata:s:a:0 spatial_audio=1");
+                if (AudioSettings.ChannelLayout == EPanoramaAudioChannelLayout::FirstOrderAmbisonics)
+                {
+                    Metadata += TEXT(" -metadata:s:a:0 ambisonic_order=1");
+                }
             }
         }
 
@@ -513,9 +520,16 @@ namespace
         if (bCopyVideoStream)
         {
             CommandLine += TEXT(" -c:v copy");
-            if (ContainerExtension.Equals(TEXT("mp4"), ESearchCase::IgnoreCase) && Codec == EPanoramaCaptureCodec::H264)
+            if (ContainerExtension.Equals(TEXT("mp4"), ESearchCase::IgnoreCase))
             {
-                CommandLine += TEXT(" -bsf:v h264_mp4toannexb");
+                if (Codec == EPanoramaCaptureCodec::H264)
+                {
+                    CommandLine += TEXT(" -bsf:v h264_mp4toannexb");
+                }
+                else if (Codec == EPanoramaCaptureCodec::HEVC)
+                {
+                    CommandLine += TEXT(" -bsf:v hevc_mp4toannexb");
+                }
             }
         }
         else
@@ -541,7 +555,7 @@ namespace
             CommandLine += TEXT(" -af \"aresample=async=1:first_pts=0\"");
         }
 
-        CommandLine += BuildMetadataArgs(OutputSettings, CaptureMode, AudioSettings);
+        CommandLine += BuildMetadataArgs(OutputSettings, CaptureMode, AudioSettings, bHasAudio);
 
         if (ContainerExtension.Equals(TEXT("mp4"), ESearchCase::IgnoreCase))
         {
