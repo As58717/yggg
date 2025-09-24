@@ -1,0 +1,68 @@
+#include "/Engine/Public/Platform.ush"
+
+Texture2D FaceTextures[6];
+SamplerState FaceSampler;
+RWTexture2D<float4> OutputTexture;
+float2 OutputResolution;
+float2 InvOutputResolution;
+float2 FullResolution;
+float2 OutputOffset;
+float4x4 ViewMatrices[6];
+float bLinearColorSpace;
+
+[numthreads(8,8,1)]
+void Main(uint3 DTid : SV_DispatchThreadID)
+{
+    if (DTid.x >= OutputResolution.x || DTid.y >= OutputResolution.y)
+    {
+        return;
+    }
+
+    float2 uv = (DTid.xy + 0.5) * InvOutputResolution;
+    float phi = (uv.x - 0.5) * (2.0 * PI);
+    float theta = (0.5 - uv.y) * PI;
+    float3 dir;
+    dir.x = cos(theta) * sin(phi);
+    dir.y = sin(theta);
+    dir.z = cos(theta) * cos(phi);
+
+    int faceIndex = 0;
+    float maxComponent = max(max(abs(dir.x), abs(dir.y)), abs(dir.z));
+    float3 absDir = abs(dir);
+    float2 texCoord;
+
+    if (absDir.x >= maxComponent)
+    {
+        faceIndex = dir.x > 0 ? 0 : 1;
+        float3 projected = mul((float3x3)ViewMatrices[faceIndex], dir);
+        texCoord = projected.xy / abs(projected.z);
+    }
+    else if (absDir.y >= maxComponent)
+    {
+        faceIndex = dir.y > 0 ? 2 : 3;
+        float3 projected = mul((float3x3)ViewMatrices[faceIndex], dir);
+        texCoord = projected.xy / abs(projected.z);
+    }
+    else
+    {
+        faceIndex = dir.z > 0 ? 4 : 5;
+        float3 projected = mul((float3x3)ViewMatrices[faceIndex], dir);
+        texCoord = projected.xy / abs(projected.z);
+    }
+
+    texCoord = texCoord * 0.5 + 0.5;
+
+    float4 color = FaceTextures[faceIndex].SampleLevel(FaceSampler, texCoord, 0);
+    if (bLinearColorSpace > 0.5)
+    {
+        color.rgb = pow(color.rgb, 2.2);
+    }
+
+    uint2 TargetCoord = uint2(OutputOffset) + DTid.xy;
+    if (TargetCoord.x >= FullResolution.x || TargetCoord.y >= FullResolution.y)
+    {
+        return;
+    }
+
+    OutputTexture[TargetCoord] = color;
+}
